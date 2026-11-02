@@ -42,6 +42,10 @@ export default function App() {
     isBoosting: false,
     nearMissCount: 0,
     laneIndex: 1,
+    weather: 'CLEAR',
+    traction: 1.0,
+    visibilityMeters: 350,
+    weatherBonus: 1.0,
     recentNearMiss: null,
   });
 
@@ -332,6 +336,11 @@ export default function App() {
     engineRef.current?.moveRight();
   }, []);
 
+  const handleCycleWeather = useCallback(() => {
+    soundManager.resume();
+    engineRef.current?.cycleWeather();
+  }, []);
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none touch-none">
       {/* 3D WebGL Canvas Container */}
@@ -358,6 +367,7 @@ export default function App() {
           onInputChange={handleTouchInputChange}
           onMoveLeft={handleMoveLeft}
           onMoveRight={handleMoveRight}
+          onCycleWeather={handleCycleWeather}
           onPause={handlePause}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}

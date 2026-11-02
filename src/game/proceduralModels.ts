@@ -939,6 +939,7 @@ export function createOverheadGantry(): THREE.Group {
 export interface RoadChunkInstance {
   root: THREE.Group;
   length: number;
+  roadMaterial: THREE.MeshStandardMaterial;
 }
 
 export function createRoadChunk(
@@ -1054,5 +1055,5 @@ export function createRoadChunk(
     root.add(tree);
   }
 
-  return { root, length: chunkLength };
+  return { root, length: chunkLength, roadMaterial: roadMat };
 }

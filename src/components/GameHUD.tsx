@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause } from 'lucide-react';
+import { Volume2, VolumeX, Pause, Sun, CloudRain, CloudFog, AlertTriangle } from 'lucide-react';
 import { GameTelemetry, InputState } from '../types/game';
 
 interface GameHUDProps {
@@ -8,6 +8,7 @@ interface GameHUDProps {
   onInputChange: (key: keyof InputState, value: boolean) => void;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
+  onCycleWeather?: () => void;
   onPause: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
@@ -20,6 +21,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onInputChange,
   onMoveLeft,
   onMoveRight,
+  onCycleWeather,
   onPause,
   isMuted,
   onToggleMute,
@@ -57,15 +59,86 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         </div>
 
-        {/* Near Miss Floating Toast */}
-        {recentNearMiss && (
-          <div className="animate-in fade-in zoom-in-95 duration-200 bg-cyan-500/90 text-slate-950 font-black px-4 py-2 rounded-xl text-sm md:text-base tracking-wider uppercase shadow-xl shadow-cyan-500/40 border border-cyan-200">
-            {recentNearMiss.text}
-          </div>
-        )}
+        {/* Near Miss Floating Toast or Center Warning */}
+        <div className="flex flex-col items-center gap-2">
+          {recentNearMiss && (
+            <div className="animate-in fade-in zoom-in-95 duration-200 bg-cyan-500/90 text-slate-950 font-black px-4 py-2 rounded-xl text-sm md:text-base tracking-wider uppercase shadow-xl shadow-cyan-500/40 border border-cyan-200">
+              {recentNearMiss.text}
+            </div>
+          )}
 
-        {/* Top Right Utilities: Audio & Pause */}
+          {/* Wet/Fog road warning pill during weather changes */}
+          {telemetry.weather === 'RAIN' && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-950/85 border border-cyan-500/60 text-cyan-300 text-xs font-mono font-semibold backdrop-blur-md shadow-lg">
+              <AlertTriangle className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span>CAUTION: WET ASPHALT · BRAKING DISTANCE +45%</span>
+            </div>
+          )}
+          {telemetry.weather === 'FOG' && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-950/85 border border-amber-500/60 text-amber-300 text-xs font-mono font-semibold backdrop-blur-md shadow-lg">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <span>CAUTION: LOW VISIBILITY ({Math.round(telemetry.visibilityMeters)}M)</span>
+            </div>
+          )}
+        </div>
+
+        {/* Top Right Utilities: Dynamic Weather Toggle, Audio & Pause */}
         <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Dynamic Weather Badge & Cycle Button */}
+          <button
+            onClick={onCycleWeather}
+            className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-slate-700/80 hover:border-cyan-400/80 backdrop-blur-md shadow-xl transition-all cursor-pointer select-none active:scale-95 text-left"
+            title="Click to manually cycle weather: Clear -> Rain -> Fog"
+          >
+            {telemetry.weather === 'CLEAR' && (
+              <>
+                <Sun className="w-4 h-4 text-amber-400 animate-[spin_12s_linear_infinite]" />
+                <div className="flex flex-col leading-none">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-black text-amber-300 tracking-wider">CLEAR</span>
+                    <span className="text-[8px] text-slate-400 font-mono">1.0x</span>
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-mono hidden sm:inline">100% Grip</span>
+                </div>
+              </>
+            )}
+            {telemetry.weather === 'RAIN' && (
+              <>
+                <CloudRain className="w-4 h-4 text-cyan-400 animate-bounce" />
+                <div className="flex flex-col leading-none">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-black text-cyan-300 tracking-wider">RAIN</span>
+                    <span className="text-[8px] text-cyan-300 font-black px-1 rounded bg-cyan-950 border border-cyan-800">
+                      +{Math.round((telemetry.weatherBonus - 1) * 100)}%
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-rose-300 font-mono hidden sm:inline">
+                    {Math.round(telemetry.traction * 100)}% Grip
+                  </span>
+                </div>
+              </>
+            )}
+            {telemetry.weather === 'FOG' && (
+              <>
+                <CloudFog className="w-4 h-4 text-slate-300 animate-pulse" />
+                <div className="flex flex-col leading-none">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-black text-slate-200 tracking-wider">FOG</span>
+                    <span className="text-[8px] text-amber-300 font-black px-1 rounded bg-amber-950 border border-amber-800">
+                      +{Math.round((telemetry.weatherBonus - 1) * 100)}%
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-amber-300/90 font-mono hidden sm:inline">
+                    {Math.round(telemetry.visibilityMeters)}m Vis
+                  </span>
+                </div>
+              </>
+            )}
+            <span className="text-[9px] text-slate-500 group-hover:text-cyan-400 transition-colors ml-0.5">
+              ⟳
+            </span>
+          </button>
+
           <button
             onClick={onToggleMute}
             className="w-10 h-10 rounded-xl bg-slate-950/80 border border-slate-700 hover:border-slate-500 text-slate-200 flex items-center justify-center transition-colors shadow-lg cursor-pointer"

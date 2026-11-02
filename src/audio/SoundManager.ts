@@ -26,6 +26,10 @@ class SoundManager {
   private screechGain: GainNode | null = null;
   private screechFilter: BiquadFilterNode | null = null;
 
+  // Rain ambient nodes
+  private rainGain: GainNode | null = null;
+  private rainFilter: BiquadFilterNode | null = null;
+
   constructor() {
     // AudioContext will be initialized on the first user interaction
   }
@@ -149,6 +153,30 @@ class SoundManager {
     this.screechGain.connect(this.ctx.destination);
     whiteNoise.start();
     this.turboNoiseNode = whiteNoise;
+
+    // Rain ambient hiss setup
+    const rainNoiseSrc = this.ctx.createBufferSource();
+    rainNoiseSrc.buffer = noiseBuffer;
+    rainNoiseSrc.loop = true;
+
+    this.rainFilter = this.ctx.createBiquadFilter();
+    this.rainFilter.type = 'lowpass';
+    this.rainFilter.frequency.setValueAtTime(1600, this.ctx.currentTime);
+
+    this.rainGain = this.ctx.createGain();
+    this.rainGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+    rainNoiseSrc.connect(this.rainFilter);
+    this.rainFilter.connect(this.rainGain);
+    this.rainGain.connect(this.ctx.destination);
+    rainNoiseSrc.start();
+  }
+
+  public updateRainSound(isRaining: boolean, intensity = 1.0) {
+    if (!this.ctx || !this.isInitialized || this.isMuted) return;
+    const t = this.ctx.currentTime;
+    const target = isRaining ? 0.16 * Math.min(1.0, Math.max(0, intensity)) : 0;
+    this.rainGain?.gain.setTargetAtTime(target, t, 0.25);
   }
 
   public updateEngineSound(speedKmh: number, isAccelerating: boolean, isBraking: boolean, isBoosting: boolean) {
@@ -198,6 +226,7 @@ class SoundManager {
     this.engineMasterGain.gain.setTargetAtTime(0, t, 0.1);
     this.turboGain?.gain.setTargetAtTime(0, t, 0.1);
     this.screechGain?.gain.setTargetAtTime(0, t, 0.05);
+    this.rainGain?.gain.setTargetAtTime(0, t, 0.15);
   }
 
   public playNearMiss() {

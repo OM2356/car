@@ -117,6 +117,24 @@ export class ParticleSystem {
     }
   }
 
+  public emitWaterSpray(origin: THREE.Vector3, speedKmh: number) {
+    if (this.particles.length >= this.maxParticles || speedKmh < 40) return;
+    for (let i = 0; i < 2; i++) {
+      this.particles.push({
+        position: origin.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.05, (Math.random() - 0.5) * 0.3)),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 2.5,
+          0.8 + Math.random() * 1.5,
+          -4 - Math.random() * 8
+        ),
+        color: new THREE.Color(0xa0c4e8),
+        size: 0.8 + Math.random() * 0.6,
+        life: 0,
+        maxLife: 0.45,
+      });
+    }
+  }
+
   public update(dt: number) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -167,5 +185,105 @@ export class ParticleSystem {
   public dispose() {
     this.geometry.dispose();
     this.material.dispose();
+  }
+}
+
+export class RainSystem {
+  private count = 1000;
+  private geometry: THREE.BufferGeometry;
+  private material: THREE.LineBasicMaterial;
+  private lines: THREE.LineSegments;
+  private positions: Float32Array;
+  private dropLengths: Float32Array;
+  private scene: THREE.Scene;
+  public intensity: number = 0; // 0 (dry) to 1.0 (heavy downpour)
+
+  constructor(scene: THREE.Scene) {
+    this.scene = scene;
+    // 2 vertices per line segment
+    this.positions = new Float32Array(this.count * 6);
+    this.dropLengths = new Float32Array(this.count);
+
+    const boxX = 35;
+    const boxY = 22;
+    const boxZ = 65;
+
+    for (let i = 0; i < this.count; i++) {
+      const x = (Math.random() - 0.5) * boxX;
+      const y = Math.random() * boxY;
+      const z = (Math.random() - 0.3) * boxZ;
+      const len = 0.8 + Math.random() * 0.9;
+      this.dropLengths[i] = len;
+
+      const idx = i * 6;
+      this.positions[idx] = x;
+      this.positions[idx + 1] = y;
+      this.positions[idx + 2] = z;
+      this.positions[idx + 3] = x;
+      this.positions[idx + 4] = y - len;
+      this.positions[idx + 5] = z;
+    }
+
+    this.geometry = new THREE.BufferGeometry();
+    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+
+    this.material = new THREE.LineBasicMaterial({
+      color: 0x90caf9,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    this.lines = new THREE.LineSegments(this.geometry, this.material);
+    this.lines.frustumCulled = false;
+    scene.add(this.lines);
+  }
+
+  public update(dt: number, playerPos: THREE.Vector3, speedKmh: number) {
+    if (this.intensity <= 0.01) {
+      this.lines.visible = false;
+      return;
+    }
+    this.lines.visible = true;
+    this.material.opacity = this.intensity * 0.6;
+
+    const boxX = 36;
+    const boxY = 24;
+    const boxZ = 65;
+    const speedMs = (speedKmh * 1000) / 3600;
+    const slantZ = -speedMs * 0.04;
+    const fallSpeed = 36.0;
+
+    const pos = this.positions;
+    for (let i = 0; i < this.count; i++) {
+      const idx = i * 6;
+      const len = this.dropLengths[i];
+
+      pos[idx + 1] -= fallSpeed * dt;
+      pos[idx + 2] += (speedMs * dt) - (fallSpeed * 0.1 * dt);
+
+      const relY = pos[idx + 1];
+      const relZ = pos[idx + 2] - playerPos.z;
+      const relX = pos[idx] - playerPos.x;
+
+      if (relY < 0.1 || relZ < -20 || relZ > 45 || Math.abs(relX) > boxX / 2) {
+        pos[idx] = playerPos.x + (Math.random() - 0.5) * boxX;
+        pos[idx + 1] = boxY - Math.random() * 2;
+        pos[idx + 2] = playerPos.z + (Math.random() - 0.3) * boxZ;
+      }
+
+      pos[idx + 3] = pos[idx];
+      pos[idx + 4] = pos[idx + 1] - len;
+      pos[idx + 5] = pos[idx + 2] + slantZ * len;
+    }
+
+    this.geometry.attributes.position.needsUpdate = true;
+  }
+
+  public dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
+    this.scene.remove(this.lines);
   }
 }

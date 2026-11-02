@@ -18,6 +18,17 @@ export const CAR_COLORS: CarColorConfig[] = [
   { id: 'orange', name: 'Blaze Orange', hex: 0xff5400, cssColor: '#ff5400', secondaryHex: 0x331000 },
 ];
 
+export type WeatherType = 'CLEAR' | 'RAIN' | 'FOG';
+
+export interface WeatherInfo {
+  type: WeatherType;
+  name: string;
+  description: string;
+  traction: number; // 0 to 1 scale (e.g. 1.0 = optimal, 0.68 = slick wet)
+  visibilityMeters: number; // Approximate sight distance
+  scoreBonusMultiplier: number;
+}
+
 export interface GameTelemetry {
   speedKmh: number;
   rpm: number;
@@ -30,6 +41,10 @@ export interface GameTelemetry {
   isBoosting: boolean;
   nearMissCount: number;
   laneIndex: number; // 0 = Left, 1 = Center, 2 = Right
+  weather: WeatherType;
+  traction: number;
+  visibilityMeters: number;
+  weatherBonus: number;
   recentNearMiss: {
     points: number;
     text: string;

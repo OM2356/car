@@ -10,9 +10,9 @@ import {
   TrafficType,
   RoadChunkInstance,
 } from './proceduralModels';
-import { ParticleSystem } from './particles';
+import { ParticleSystem, RainSystem } from './particles';
 import { soundManager } from '../audio/SoundManager';
-import { GameState, GameTelemetry, InputState } from '../types/game';
+import { GameState, GameTelemetry, InputState, WeatherType } from '../types/game';
 
 // Software WebGL detection guard from Three.js skill
 function detectSoftwareGl(): boolean {
@@ -83,6 +83,37 @@ export class GameEngine {
   private currentLaneIndex: number = 1;
   private targetLaneIndex: number = 1;
   private laneHoldTimer: number = 0;
+
+  // Dynamic Weather System ('CLEAR' | 'RAIN' | 'FOG')
+  private weather: WeatherType = 'CLEAR';
+  private weatherTimer: number = 0;
+  private weatherDuration: number = 36; // seconds per weather cycle phase
+  private weatherCycleList: WeatherType[] = ['CLEAR', 'RAIN', 'FOG'];
+  private weatherIndex: number = 0;
+  private rainSystem!: RainSystem;
+
+  // Weather visual rendering targets (for smooth interpolation)
+  private currentSkyColor = new THREE.Color(0x87ceeb);
+  private targetSkyColor = new THREE.Color(0x87ceeb);
+  private currentFogColor = new THREE.Color(0x87ceeb);
+  private targetFogColor = new THREE.Color(0x87ceeb);
+  private currentFogDensity = 0.0075;
+  private targetFogDensity = 0.0075;
+  private currentSunIntensity = 2.2;
+  private targetSunIntensity = 2.2;
+  private currentHemiIntensity = 0.9;
+  private targetHemiIntensity = 0.9;
+  private currentRainIntensity = 0;
+  private targetRainIntensity = 0;
+  private currentRoadRoughness = 0.75;
+  private targetRoadRoughness = 0.75;
+  private currentRoadMetalness = 0.1;
+  private targetRoadMetalness = 0.1;
+
+  // Weather traction & scoring modifiers
+  private traction: number = 1.0; // 1.0 = optimal dry, 0.68 = slick rain, 0.88 = foggy damp
+  private visibilityMeters: number = 350;
+  private weatherBonus: number = 1.0;
 
   // Vehicle Dynamics
   private speedKmh: number = 0;
@@ -192,8 +223,10 @@ export class GameEngine {
       this.roadChunks.push(chunk);
     }
 
-    // 7. Particles
+    // 7. Particles & Rain System
     this.particleSystem = new ParticleSystem(this.scene);
+    this.rainSystem = new RainSystem(this.scene);
+    this.applyWeatherSettings('CLEAR', true);
 
     // 8. Player Car
     this.playerCar = createPlayerCar(0xd91b24);
@@ -214,6 +247,80 @@ export class GameEngine {
 
   public setPaintColor(hex: number) {
     this.playerCar.setPaintColor(hex);
+  }
+
+  public applyWeatherSettings(type: WeatherType, immediate = false) {
+    this.weather = type;
+    this.weatherIndex = this.weatherCycleList.indexOf(type);
+
+    if (type === 'CLEAR') {
+      this.targetSkyColor.set(0x87ceeb);
+      this.targetFogColor.set(0x87ceeb);
+      this.targetFogDensity = 0.0075;
+      this.targetSunIntensity = 2.2;
+      this.targetHemiIntensity = 0.9;
+      this.targetRainIntensity = 0;
+      this.targetRoadRoughness = 0.75;
+      this.targetRoadMetalness = 0.1;
+      this.traction = 1.0;
+      this.visibilityMeters = 350;
+      this.weatherBonus = 1.0;
+    } else if (type === 'RAIN') {
+      this.targetSkyColor.set(0x404b5a);
+      this.targetFogColor.set(0x465363);
+      this.targetFogDensity = 0.018;
+      this.targetSunIntensity = 0.9;
+      this.targetHemiIntensity = 0.65;
+      this.targetRainIntensity = 1.0;
+      this.targetRoadRoughness = 0.22;
+      this.targetRoadMetalness = 0.45;
+      this.traction = 0.68;
+      this.visibilityMeters = 160;
+      this.weatherBonus = 1.35;
+    } else if (type === 'FOG') {
+      this.targetSkyColor.set(0x9cb0be);
+      this.targetFogColor.set(0x9eb2c0);
+      this.targetFogDensity = 0.038;
+      this.targetSunIntensity = 0.55;
+      this.targetHemiIntensity = 1.15;
+      this.targetRainIntensity = 0;
+      this.targetRoadRoughness = 0.65;
+      this.targetRoadMetalness = 0.18;
+      this.traction = 0.88;
+      this.visibilityMeters = 75;
+      this.weatherBonus = 1.5;
+    }
+
+    if (immediate) {
+      this.currentSkyColor.copy(this.targetSkyColor);
+      this.scene.background = this.currentSkyColor;
+      this.currentFogColor.copy(this.targetFogColor);
+      (this.scene.fog as THREE.FogExp2).color.copy(this.currentFogColor);
+      this.currentFogDensity = this.targetFogDensity;
+      (this.scene.fog as THREE.FogExp2).density = this.currentFogDensity;
+      this.currentSunIntensity = this.targetSunIntensity;
+      this.dirLight.intensity = this.currentSunIntensity;
+      this.currentHemiIntensity = this.targetHemiIntensity;
+      this.hemiLight.intensity = this.currentHemiIntensity;
+      this.currentRainIntensity = this.targetRainIntensity;
+      this.rainSystem.intensity = this.currentRainIntensity;
+      this.currentRoadRoughness = this.targetRoadRoughness;
+      this.currentRoadMetalness = this.targetRoadMetalness;
+      for (const chunk of this.roadChunks) {
+        chunk.roadMaterial.roughness = this.currentRoadRoughness;
+        chunk.roadMaterial.metalness = this.currentRoadMetalness;
+      }
+    }
+  }
+
+  public cycleWeather() {
+    this.weatherIndex = (this.weatherIndex + 1) % this.weatherCycleList.length;
+    this.setWeather(this.weatherCycleList[this.weatherIndex]);
+  }
+
+  public setWeather(type: WeatherType) {
+    this.applyWeatherSettings(type);
+    this.weatherTimer = 0;
   }
 
   public setMenuMode() {
@@ -262,6 +369,11 @@ export class GameEngine {
     this.currentLaneIndex = 1;
     this.targetLaneIndex = 1;
     this.laneHoldTimer = 0;
+
+    // Reset Weather to clear skies
+    this.weatherTimer = 0;
+    this.weatherIndex = 0;
+    this.applyWeatherSettings('CLEAR', true);
 
     // Reset player position perfectly in Center Lane
     this.playerCar.root.position.set(LANE_CENTERS[1], 0, 0);
@@ -447,6 +559,10 @@ export class GameEngine {
       isBoosting: this.isBoosting,
       nearMissCount: this.nearMissCount,
       laneIndex: this.targetLaneIndex,
+      weather: this.weather,
+      traction: Math.round(this.traction * 100),
+      visibilityMeters: this.visibilityMeters,
+      weatherBonus: this.weatherBonus,
       recentNearMiss: {
         points: bonusPoints,
         text: `+${bonusPoints} NEAR MISS! (${this.combo}x COMBO)`,
@@ -582,12 +698,17 @@ export class GameEngine {
       }
     }
 
-    // Acceleration & Deceleration physics
-    const accelRate = this.isBoosting ? 140 : isAccel ? 75 : isBraking ? 160 : 35;
+    // Acceleration & Deceleration physics modulated by road traction
+    const baseAccel = this.isBoosting ? 140 : isAccel ? 75 : 35;
+    const accelRate = this.isBoosting ? 140 : baseAccel * (0.8 + 0.2 * this.traction);
+    // In rain/wet conditions, braking distance is extended due to reduced tire friction
+    const brakeRate = 160 * (0.6 + 0.4 * this.traction);
+    const changeRate = isBraking ? brakeRate : accelRate;
+
     if (this.speedKmh < this.targetSpeedKmh) {
-      this.speedKmh = Math.min(this.targetSpeedKmh, this.speedKmh + accelRate * dt);
+      this.speedKmh = Math.min(this.targetSpeedKmh, this.speedKmh + changeRate * dt);
     } else {
-      this.speedKmh = Math.max(this.targetSpeedKmh, this.speedKmh - accelRate * dt);
+      this.speedKmh = Math.max(this.targetSpeedKmh, this.speedKmh - changeRate * dt);
     }
 
     if (this.speedKmh > this.topSpeedRecorded) {
@@ -627,8 +748,9 @@ export class GameEngine {
     const targetX = LANE_CENTERS[this.targetLaneIndex];
     const prevX = pPos.x;
 
-    // Smoothly and responsively glide towards target lane
-    pPos.x = THREE.MathUtils.damp(pPos.x, targetX, 13, dt);
+    // Smoothly and responsively glide towards target lane (slicker road has looser damping)
+    const laneSteerDamping = 9.0 + 4.0 * this.traction;
+    pPos.x = THREE.MathUtils.damp(pPos.x, targetX, laneSteerDamping, dt);
 
     // Clean snap when aligned with lane center
     if (Math.abs(pPos.x - targetX) < 0.015) {
@@ -689,12 +811,20 @@ export class GameEngine {
       this.particleSystem.emitTireSmoke(_vec3B);
     }
 
+    // Wet road tire spray in rain
+    if (this.currentRainIntensity > 0.3 && this.speedKmh > 50) {
+      _vec3A.set(pPos.x - 0.75, 0.08, pPos.z - 1.5);
+      _vec3B.set(pPos.x + 0.75, 0.08, pPos.z - 1.5);
+      this.particleSystem.emitWaterSpray(_vec3A, this.speedKmh);
+      this.particleSystem.emitWaterSpray(_vec3B, this.speedKmh);
+    }
+
     // Audio synthesis update
     soundManager.updateEngineSound(this.speedKmh, isAccel, isBraking, this.isBoosting);
 
-    // Score accumulation (distance + speed multiplier)
+    // Score accumulation (distance + speed multiplier + inclement weather risk bonus)
     const speedMultiplier = Math.max(1, this.speedKmh / 100);
-    this.score += distDelta * speedMultiplier * this.combo * 0.6;
+    this.score += distDelta * speedMultiplier * this.combo * this.weatherBonus * 0.6;
 
     // Combo timer decay
     if (this.comboTimer > 0) {
@@ -754,6 +884,47 @@ export class GameEngine {
     this.dirLight.target.position.set(pPos.x, 0, pPos.z + 15);
   }
 
+  private updateWeather(dt: number) {
+    if (this.state === 'PLAYING') {
+      this.weatherTimer += dt;
+      if (this.weatherTimer >= this.weatherDuration) {
+        this.weatherTimer = 0;
+        this.weatherIndex = (this.weatherIndex + 1) % this.weatherCycleList.length;
+        this.applyWeatherSettings(this.weatherCycleList[this.weatherIndex]);
+      }
+    }
+
+    // Smooth exponential transitions between atmospheric parameters
+    this.currentSkyColor.lerp(this.targetSkyColor, 1.8 * dt);
+    this.scene.background = this.currentSkyColor;
+
+    this.currentFogColor.lerp(this.targetFogColor, 1.8 * dt);
+    (this.scene.fog as THREE.FogExp2).color.copy(this.currentFogColor);
+
+    this.currentFogDensity = THREE.MathUtils.damp(this.currentFogDensity, this.targetFogDensity, 2.0, dt);
+    (this.scene.fog as THREE.FogExp2).density = this.currentFogDensity;
+
+    this.currentSunIntensity = THREE.MathUtils.damp(this.currentSunIntensity, this.targetSunIntensity, 2.0, dt);
+    this.dirLight.intensity = this.currentSunIntensity;
+
+    this.currentHemiIntensity = THREE.MathUtils.damp(this.currentHemiIntensity, this.targetHemiIntensity, 2.0, dt);
+    this.hemiLight.intensity = this.currentHemiIntensity;
+
+    this.currentRainIntensity = THREE.MathUtils.damp(this.currentRainIntensity, this.targetRainIntensity, 2.5, dt);
+    this.rainSystem.intensity = this.currentRainIntensity;
+    this.rainSystem.update(dt, this.playerCar.root.position, this.speedKmh);
+
+    this.currentRoadRoughness = THREE.MathUtils.damp(this.currentRoadRoughness, this.targetRoadRoughness, 2.0, dt);
+    this.currentRoadMetalness = THREE.MathUtils.damp(this.currentRoadMetalness, this.targetRoadMetalness, 2.0, dt);
+    for (const chunk of this.roadChunks) {
+      chunk.roadMaterial.roughness = this.currentRoadRoughness;
+      chunk.roadMaterial.metalness = this.currentRoadMetalness;
+    }
+
+    // Procedural ambient rain sound synthesis
+    soundManager.updateRainSound(this.currentRainIntensity > 0.05, this.currentRainIntensity);
+  }
+
   private tick(now: number) {
     if (!this.isRunning) return;
 
@@ -788,10 +959,15 @@ export class GameEngine {
         isBoosting: this.isBoosting,
         nearMissCount: this.nearMissCount,
         laneIndex: this.targetLaneIndex,
+        weather: this.weather,
+        traction: Math.round(this.traction * 100),
+        visibilityMeters: this.visibilityMeters,
+        weatherBonus: this.weatherBonus,
         recentNearMiss: null,
       });
     }
 
+    this.updateWeather(dt);
     this.particleSystem.update(dt);
     this.updateCamera(dt);
 
@@ -815,6 +991,7 @@ export class GameEngine {
     window.removeEventListener('resize', this.onResize);
     soundManager.stopEngine();
 
+    this.rainSystem.dispose();
     this.particleSystem.dispose();
     this.clearTraffic();
     this.renderer.dispose();
